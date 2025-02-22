@@ -61,13 +61,18 @@ function App() {
           introduction: content.introduction,
           body_copy: content.body_copy,
           full_article: content.full_article,
+          section1: content.section1,
+          section2: content.section2,
+          section3: content.section3,
+          section4: content.section4,
+          section5: content.section5,
           image_urls: content.image_urls,
           alt_image_texts: content.alt_image_texts,
           published: true
         }]);
 
       if (supabaseError) {
-        console.error('Supabase error:', supabaseError);
+        console.error('Supabase insert error:', supabaseError);
         throw supabaseError;
       }
       
