@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { PenLine, Loader2 } from 'lucide-react';
 import { generateBlogContent } from './lib/openai';
 import { supabase, getReferenceArticles } from './lib/supabase';
-import { testUnsplashConnection } from './lib/unsplash-test';
 import slugify from 'slugify';
 
 interface TokenUsage {
@@ -14,19 +13,12 @@ interface TokenUsage {
 
 function App() {
   const [topic, setTopic] = useState('');
+  const [primaryKeywords, setPrimaryKeywords] = useState('');
+  const [secondaryKeywords, setSecondaryKeywords] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
-
-  useEffect(() => {
-    // Test Unsplash connection on component mount
-    testUnsplashConnection().then(success => {
-      if (!success) {
-        setError('Failed to connect to Unsplash API. Please check your API key.');
-      }
-    });
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,13 +28,24 @@ function App() {
     setTokenUsage(null);
 
     try {
-      // First, get reference articles
+      // Convert keywords from text to arrays
+      const primaryKeywordsArray = primaryKeywords
+        .split('\n')
+        .map(k => k.trim())
+        .filter(k => k.length > 0);
+      
+      const secondaryKeywordsArray = secondaryKeywords
+        .split('\n')
+        .map(k => k.trim())
+        .filter(k => k.length > 0);
+
+      // Get reference articles
       const referenceUrls = await getReferenceArticles();
       console.log('Reference articles:', referenceUrls);
 
-      // Generate content
-      console.log('Generating content for topic:', topic);
-      const { content, usage } = await generateBlogContent(topic, referenceUrls);
+      // Generate content with provided keywords
+      console.log('Generating content with keywords:', { primaryKeywordsArray, secondaryKeywordsArray });
+      const { content, usage } = await generateBlogContent(topic, referenceUrls, primaryKeywordsArray, secondaryKeywordsArray);
       console.log('Received content:', content);
       setTokenUsage(usage);
       
@@ -78,6 +81,8 @@ function App() {
       
       setSuccess(true);
       setTopic('');
+      setPrimaryKeywords('');
+      setSecondaryKeywords('');
     } catch (err) {
       console.error('Error in handleSubmit:', err);
       const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
@@ -97,24 +102,56 @@ function App() {
             Blog Post Generator
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Enter a topic and let AI create your complete blog post
+            Enter topic and keywords to create your complete blog post
           </p>
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="rounded-md shadow-sm -space-y-px">
+          <div className="rounded-md shadow-sm space-y-4">
             <div>
-              <label htmlFor="topic" className="sr-only">
+              <label htmlFor="topic" className="block text-sm font-medium text-gray-700">
                 Blog Topic
               </label>
-              <textarea
+              <input
                 id="topic"
                 name="topic"
+                type="text"
                 required
-                className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                 placeholder="Enter your blog topic..."
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="primaryKeywords" className="block text-sm font-medium text-gray-700">
+                Primary Keywords (one per line)
+              </label>
+              <textarea
+                id="primaryKeywords"
+                name="primaryKeywords"
+                required
+                className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                placeholder="Paste primary keywords here&#10;One keyword per line"
+                value={primaryKeywords}
+                onChange={(e) => setPrimaryKeywords(e.target.value)}
+                rows={4}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="secondaryKeywords" className="block text-sm font-medium text-gray-700">
+                Secondary Keywords (one per line)
+              </label>
+              <textarea
+                id="secondaryKeywords"
+                name="secondaryKeywords"
+                required
+                className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                placeholder="Paste secondary keywords here&#10;One keyword per line"
+                value={secondaryKeywords}
+                onChange={(e) => setSecondaryKeywords(e.target.value)}
                 rows={4}
               />
             </div>

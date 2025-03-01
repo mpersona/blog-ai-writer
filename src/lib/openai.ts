@@ -43,43 +43,25 @@ const GPT4_PRICING = {
   completionTokens: 0.00006, // €0.06 per 1K tokens
 };
 
-// Helper function to safely parse JSON response
-const safeJsonParse = (text: string | undefined, fallback: any = {}) => {
-  if (!text) return fallback;
+// Move the safeJsonParse function to the top of the file
+const safeJsonParse = (text: string) => {
   try {
-    // Clean the text before parsing
-    const cleanText = text
-      // Remove control characters
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-      // Properly escape newlines
-      .replace(/\n/g, '\\n')
-      // Properly escape quotes
-      .replace(/\\"/g, '\\"')
-      // Remove any potential markdown formatting
-      .replace(/```json/g, '')
-      .replace(/```/g, '');
-
-    // Find the JSON object
-    const jsonStart = cleanText.indexOf('{');
-    const jsonEnd = cleanText.lastIndexOf('}');
-    
-    if (jsonStart === -1 || jsonEnd === -1) {
-      console.error('No JSON object found in response:', cleanText);
-      throw new Error('No JSON object found in response');
-    }
-    
-    const jsonString = cleanText.slice(jsonStart, jsonEnd + 1);
-    console.log('Attempting to parse JSON:', jsonString);
-    
-    return JSON.parse(jsonString);
+    // Basic cleaning of the text before parsing
+    const cleanedText = text.trim();
+    return JSON.parse(cleanedText);
   } catch (error) {
     console.error('JSON Parse Error:', error);
-    console.error('Raw text:', text);
+    console.log('Raw text:', text);
     throw new Error(`Failed to parse OpenAI response as JSON: ${error}`);
   }
 };
 
-export const generateBlogContent = async (topic: string, referenceUrls: string[]): Promise<{ content: BlogContent; usage: TokenUsage }> => {
+export const generateBlogContent = async (
+  topic: string, 
+  referenceUrls: string[],
+  primaryKeywords: string[],
+  secondaryKeywords: string[]
+): Promise<{ content: BlogContent; usage: TokenUsage }> => {
   try {
     console.log('OpenAI Configuration:', {
       apiKeyExists: !!import.meta.env.VITE_OPENAI_API_KEY,
@@ -98,20 +80,21 @@ export const generateBlogContent = async (topic: string, referenceUrls: string[]
       promptTokens: 0,
       completionTokens: 0,
       totalTokens: 0,
-      costInEuros: 0
+      costInEuros: 0,
+      modelUsed: 'gpt-3.5-turbo'
     };
 
-    // First, analyze the reference articles to understand their style
-    const styleAnalysisPrompt = `Analyze the writing style, tone, and structure of these articles:
+    // Get the style guide first
+    const styleAnalysisPrompt = `Analysiere den Schreibstil, Ton und die Struktur dieser Artikel:
     ${referenceUrls.join('\n')}
     
-    Provide a brief description of their common writing patterns, tone, and structural elements.`;
+    Beschreibe kurz die gemeinsamen Schreibmuster, den Ton und die strukturellen Elemente.`;
 
     console.log('Sending request to OpenAI for style analysis...');
     try {
       const styleAnalysis = await openai.chat.completions.create({
         messages: [{ role: "user", content: styleAnalysisPrompt }],
-        model: "gpt-4",
+        model: "gpt-3.5-turbo",
         temperature: 0.7,
       });
       console.log('Received response from OpenAI for style analysis');
@@ -123,463 +106,376 @@ export const generateBlogContent = async (topic: string, referenceUrls: string[]
 
       const styleGuide = styleAnalysis.choices[0].message.content;
 
-      // Generate image queries based on the topic
-      const imageQueryPrompt = `Generate 3 specific image search queries for Unsplash that would be relevant for a blog post about "${topic}".
-      The queries should be descriptive and specific to get high-quality, relevant images.
-      
-      Format your response as a valid JSON array of strings, like this:
-      ["query 1", "query 2", "query 3"]`;
+      // Create structure using provided keywords
+      const structurePrompt = `Erstelle eine detaillierte Blog-Post-Struktur zum Thema "${topic}" auf Deutsch.
 
-      console.log('Sending request to OpenAI for image queries...');
+      Verwende diese Keywords:
+      Primäre Keywords: ${primaryKeywords.join(', ')}
+      Sekundäre Keywords: ${secondaryKeywords.join(', ')}
+
+      Die Blog-Post-Struktur sollte diesem Schema folgen:
+      1. Hauptüberschrift (H1) - MUSS mindestens eines der primären Keywords enthalten
+      2. Einleitung (100 Wörter)
+      3. 5 Hauptabschnitte. 
+      4. Der letzte Absnitt ist eine Zusammnefassung und schießt mit einer Frage ab
+      4. Erstelle eine Überschrift zu jedem Hauptschnitt. Versuche Key Word in der Überschrift zu verwenden. Versuche die Überschrift als Frage zu formulieren.
+
+      Formatiere deine Antwort als valides JSON genau wie folgt:
+      {
+        "headline": "Deine SEO-optimierte H1-Überschrift hier",
+        "primaryKeywords": ${JSON.stringify(primaryKeywords)},
+        "secondaryKeywords": ${JSON.stringify(secondaryKeywords)},
+        "outline": [
+          {
+            "title": "Einleitung",
+            "type": "h1",
+            "keyPoints": [
+              "Hauptpunkt 1 zur Einleitung",
+              "Hauptpunkt 2 zur Einleitung",
+              "Hauptpunkt 3 zur Einleitung"
+            ]
+          }
+        ]
+      }`;
+
+      console.log('=== STRUCTURE PROMPT ===');
+      console.log(structurePrompt);
+      console.log('=======================');
+
+      console.log('Sending request to OpenAI for structure...');
       try {
-        const imageQueryCompletion = await openai.chat.completions.create({
-          messages: [{ role: "user", content: imageQueryPrompt }],
-          model: "gpt-4",
+        const structureCompletion = await openai.chat.completions.create({
+          messages: [{ role: "user", content: structurePrompt }],
+          model: "gpt-3.5-turbo",
           temperature: 0.7,
         });
-        console.log('Received response from OpenAI for image queries');
 
-        totalUsage.promptTokens += imageQueryCompletion.usage?.prompt_tokens || 0;
-        totalUsage.completionTokens += imageQueryCompletion.usage?.completion_tokens || 0;
-        totalUsage.totalTokens += imageQueryCompletion.usage?.total_tokens || 0;
+        // Log the response
+        console.log('=== STRUCTURE RESPONSE ===');
+        console.log('Response content:', structureCompletion.choices[0].message.content);
+        console.log('Token usage:', structureCompletion.usage);
+        console.log('========================');
 
-        let imageQueries: string[];
+        // Add structure completion usage
+        totalUsage.promptTokens += structureCompletion.usage?.prompt_tokens || 0;
+        totalUsage.completionTokens += structureCompletion.usage?.completion_tokens || 0;
+        totalUsage.totalTokens += structureCompletion.usage?.total_tokens || 0;
+
+        let structure;
         try {
-          imageQueries = JSON.parse(imageQueryCompletion.choices[0].message.content || '[]');
-          if (!Array.isArray(imageQueries) || imageQueries.length === 0) {
-            throw new Error('Invalid image queries format');
+          const content = structureCompletion.choices[0].message.content;
+          if (!content) {
+            throw new Error('No content received from OpenAI');
           }
-        } catch (error) {
-          console.error('Failed to parse image queries:', error);
-          imageQueries = [topic]; // Fallback to using the topic as a query
+
+          // Sanitize the content
+          const sanitizedContent = content
+            .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+            .replace(/\\n/g, '\\n')  // Properly escape newlines
+            .replace(/\\"/g, '\\"'); // Properly escape quotes
+
+          structure = JSON.parse(sanitizedContent);
+
+          // Validate the required fields
+          if (!structure.headline || !Array.isArray(structure.primaryKeywords) || 
+              !Array.isArray(structure.secondaryKeywords) || !Array.isArray(structure.outline)) {
+            throw new Error('Missing required fields in the structure response');
+          }
+        } catch (parseError) {
+          console.error('Failed to parse OpenAI response:', structureCompletion.choices[0].message.content);
+          throw new Error('Failed to parse blog structure. Please try again.');
         }
 
-        // Fetch images from Unsplash
-        const images = await Promise.all(
-          imageQueries.map(query => searchUnsplashImage(query))
-        );
+        // Log the outline structure
+        console.log('Full outline structure:', structure.outline);
+        console.log('Selected section for content:', structure.outline[2]);
 
-        // Now generate the blog post structure
-        const structurePrompt = `Create a detailed blog post structure about "${topic}".
+        // Step 1: Generate Introduction
+        const introductionPrompt = `Schreibe eine Einleitung für einen Blog-Post zum Thema "${topic}".
 
-        The blog post should follow this specific structure:
-        1. Main H1 Headline
-        2. Introduction section (100 words)
-        3. 4-5 main sections, each with:
-           - H2 subheadline
-           - 400-500 words of content
-           - 3-4 key bullet points outlining the section's content
+        Zu integrierende Keywords: ${structure.primaryKeywords.join(', ')}
 
-        Important: Format your response as valid JSON exactly like this:
+        Anforderungen:
+        - Die Einleitung besteht aus mindestens 100 Wörters
+        - Fessele den Leser vom ersten Satz an
+        - Stelle die Hauptthemen vor, die behandelt werden
+        - Halte dich an diesen Stilguide: ${styleGuide}
+
+        Formatiere deine Antwort als valides JSON:
         {
-          "headline": "Your H1 SEO-optimized headline here",
-          "primaryKeywords": ["keyword1", "keyword2", "keyword3"],
-          "secondaryKeywords": ["keyword4", "keyword5", "keyword6"],
-          "outline": [
-            {
-              "title": "Introduction",
-              "type": "h1",
-              "keyPoints": [
-                "Key point 1 about introduction",
-                "Key point 2 about introduction",
-                "Key point 3 about introduction"
-              ]
-            },
-            {
-              "title": "First Main Section",
-              "type": "h2",
-              "keyPoints": [
-                "Key point 1 about this section",
-                "Key point 2 about this section",
-                "Key point 3 about this section"
-              ]
+          "introduction": "Dein Einleitungstext hier..."
+        }`;
+
+        console.log('Generiere Einleitung...');
+        const introCompletion = await openai.chat.completions.create({
+          messages: [
+            { 
+              role: "user", 
+              content: introductionPrompt 
             }
-          ]
+          ],
+          model: "gpt-3.5-turbo",
+          temperature: 0.7,
+        });
+
+        console.log('Introduction Response:', introCompletion.choices[0].message.content);
+        const introductionResponse = safeJsonParse(introCompletion.choices[0].message.content);
+        const introductionContent = introductionResponse.introduction;
+
+        if (!introductionContent) {
+          throw new Error('Introduction content is missing from the response');
         }
 
-        Requirements:
-        - All headlines must be descriptive and SEO-friendly
-        - Include 3-5 primary keywords related to the main topic
-        - Include 3-5 secondary keywords for supporting concepts
-        - Ensure all text is properly escaped for JSON
-        - Each section's key points should clearly outline what that section will cover`;
-
-        console.log('=== STRUCTURE PROMPT ===');
-        console.log(structurePrompt);
-        console.log('=======================');
-
-        console.log('Sending request to OpenAI for structure...');
-        try {
-          const structureCompletion = await openai.chat.completions.create({
-            messages: [{ role: "user", content: structurePrompt }],
-            model: "gpt-4",
-            temperature: 0.7,
-          });
-
-          // Log the response
-          console.log('=== STRUCTURE RESPONSE ===');
-          console.log('Response content:', structureCompletion.choices[0].message.content);
-          console.log('Token usage:', structureCompletion.usage);
-          console.log('========================');
-
-          // Add structure completion usage
-          totalUsage.promptTokens += structureCompletion.usage?.prompt_tokens || 0;
-          totalUsage.completionTokens += structureCompletion.usage?.completion_tokens || 0;
-          totalUsage.totalTokens += structureCompletion.usage?.total_tokens || 0;
-
-          let structure;
-          try {
-            const content = structureCompletion.choices[0].message.content;
-            if (!content) {
-              throw new Error('No content received from OpenAI');
-            }
-
-            // Sanitize the content
-            const sanitizedContent = content
-              .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
-              .replace(/\\n/g, '\\n')  // Properly escape newlines
-              .replace(/\\"/g, '\\"'); // Properly escape quotes
-
-            structure = JSON.parse(sanitizedContent);
-
-            // Validate the required fields
-            if (!structure.headline || !Array.isArray(structure.primaryKeywords) || 
-                !Array.isArray(structure.secondaryKeywords) || !Array.isArray(structure.outline)) {
-              throw new Error('Missing required fields in the structure response');
-            }
-          } catch (parseError) {
-            console.error('Failed to parse OpenAI response:', structureCompletion.choices[0].message.content);
-            throw new Error('Failed to parse blog structure. Please try again.');
+        // Define the generateSectionContent function
+        const generateSectionContent = async (sectionIndex: number) => {
+          if (!structure.outline[sectionIndex]) {
+            return null;
           }
 
-          // Log the outline structure
-          console.log('Full outline structure:', structure.outline);
-          console.log('Selected section for content:', structure.outline[2]);
-
-          // Step 1: Generate Introduction
-          const introductionPrompt = `Write an engaging introduction for a blog post about "${topic}".
-
-          Keywords to incorporate: ${structure.primaryKeywords.join(', ')}
-
-          Requirements:
-          - About 100 words
-          - Hook the reader from the first sentence
-          - Set up the main topics that will be covered
-          - Match this style guide: ${styleGuide}
-
-          Format your response as valid JSON:
-          {
-            "introduction": "Your introduction text here..."
-          }`;
-
-          console.log('Generating introduction...');
-          const introCompletion = await openai.chat.completions.create({
-            messages: [
-              { 
-                role: "user", 
-                content: introductionPrompt 
-              }
-            ],
-            model: "gpt-4",
-            temperature: 0.7,
-          });
-
-          console.log('Introduction Response:', introCompletion.choices[0].message.content);
-          const introResponse = safeJsonParse(introCompletion.choices[0].message.content);
-          const introductionContent = introResponse.introduction;
-
-          if (!introductionContent) {
-            throw new Error('Introduction content is missing from the response');
-          }
-
-          // Step 2: Generate Main Content
-          const mainContentPrompt = `Write the second main section (NOT the introduction) for a blog post about "${topic}". 
-
-          Use this section from the outline as a guide:
-          ${JSON.stringify(structure.outline[2], null, 2)}
-
-          Requirements for the section:
-          - Generate ONLY the second main section (not introduction)
-          - The section's "title" must match this headline: "${structure.outline[2].title}"
-          - The "content" must be 400-500 words and must begin with the headline
-          - Follow these key points: ${JSON.stringify(structure.outline[2].keyPoints)}
-          - Naturally incorporate these keywords: ${[
-            ...structure.primaryKeywords,
-            ...structure.secondaryKeywords,
-          ].join(', ')}
-          - Adhere to this style guide: ${styleGuide}
-
-          Return your answer strictly in the following JSON format with no additional text:
-          {
-            "sections": [
-              {
-                "title": "${structure.outline[2].title}",
-                "content": "Section content starting with the headline..."
-              }
-            ]
-          }`;
-
-          console.log('Generating main content...');
-          const mainCompletion = await openai.chat.completions.create({
-            messages: [
-              {
-                role: "system",
-                content: "You must respond with valid JSON only. No additional text or markdown formatting."
-              },
-              {
-                role: "user",
-                content: mainContentPrompt
-              }
-            ],
-            model: "gpt-4",
-            temperature: 0.7,
-          });
-
-          console.log('Main Content Response:', mainCompletion.choices[0].message.content);
-          const mainResponse = safeJsonParse(mainCompletion.choices[0].message.content);
-          const bodyContent = mainResponse.sections.map(section => section.content).join('\n');
-
-          if (!bodyContent) {
-            throw new Error('Main content is missing from the response');
-          }
-
-          // Step 3: Format Final Article
-          const formatPrompt = `Create a markdown-formatted article by combining these parts:
-
-          Title: ${structure.headline}
-
-          Introduction:
-          ${introductionContent}
-
-          Main Content:
-          ${bodyContent}
-
-          Return ONLY a JSON response in this format:
-          {
-            "full_article": "# ${structure.headline}\n\n${introductionContent}\n\n${bodyContent}"
-          }`;
-
-          console.log('Content to format:', {
-            headline: structure.headline,
-            introduction: introductionContent,
-            bodyContent: bodyContent
-          });
-
-          const formatCompletion = await openai.chat.completions.create({
-            messages: [
-              {
-                role: "system",
-                content: "You must return a valid JSON object containing the full article with both introduction and main content in markdown format."
-              },
-              {
-                role: "user",
-                content: formatPrompt
-              }
-            ],
-            model: "gpt-4",
-            temperature: 0.7,
-          });
-
-          console.log('Format Response:', formatCompletion.choices[0].message.content);
-          const formatResponse = safeJsonParse(formatCompletion.choices[0].message.content);
-          const formattedArticle = formatResponse.full_article;
-
-          if (!formattedArticle) {
-            throw new Error('Formatted article is missing from the response');
-          }
-
-          // Log the final formatted article
-          console.log('Final formatted article:', formattedArticle);
-
-          // Track total usage across all steps
-          totalUsage.promptTokens += 
-            (structureCompletion.usage?.prompt_tokens || 0) +
-            (formatCompletion.usage?.prompt_tokens || 0);
+          const section = structure.outline[sectionIndex];
           
-          totalUsage.completionTokens += 
-            (structureCompletion.usage?.completion_tokens || 0) +
-            (formatCompletion.usage?.completion_tokens || 0);
+          const generateSectionPrompt = `
+Anforderungen für den Abschnitt:
+- Erstelle NUR diesen Abschnitt
+- Der Abschnitt besteht aus einer Überschrift "${section.title}" und einem Text
+- Der Text muss mindestens 400 Wörter umfassen
+- Erstelle einen prägnanten Text, integriere diese Keywords natürlich: ${[
+  ...primaryKeywords,
+  ...secondaryKeywords,
+].join(', ')}
+- Formatiere den Text in Markdown:
+  * Verwende ## für die Überschrift
+  * Nutze Absätze für bessere Lesbarkeit
+  * Setze Links als [Text](URL)
+  * Nutze Listen mit * oder - wo sinnvoll
+- Halte dich an diesen Stilguide: ${styleGuide}
 
-          // Function to generate content for a specific section
-          const generateSectionContent = async (sectionIndex: number) => {
-            // Add error checking
-            if (!structure.outline[sectionIndex]) {
-              console.log('Available outline sections:', structure.outline);
-              console.log('Attempted to access section:', sectionIndex);
-              return {
-                title: `Section ${sectionIndex}`,
-                content: `Content for section ${sectionIndex} could not be generated.`
-              };
-            }
-
-            const section = structure.outline[sectionIndex];
-            console.log(`Generating content for section ${sectionIndex}:`, section);
-            
-            const sectionPrompt = `Write section ${sectionIndex} for a blog post about "${topic}". 
-
-            Use this section from the outline as a guide:
-            ${JSON.stringify(section, null, 2)}
-
-            Requirements for the section:
-            - Generate ONLY this section
-            - The section's "title" must match this headline: "${section.title}"
-            - The "content" must be 400-500 words and must begin with the headline
-            - Follow these key points: ${JSON.stringify(section.keyPoints)}
-            - Naturally incorporate these keywords: ${[
-              ...structure.primaryKeywords,
-              ...structure.secondaryKeywords,
-            ].join(', ')}
-            - Adhere to this style guide: ${styleGuide}
-
-            Return your answer strictly in the following JSON format with no additional text:
-            {
-              "sections": [
-                {
-                  "title": "${section.title}",
-                  "content": "Section content starting with the headline..."
-                }
-              ]
-            }`;
-
-            const completion = await openai.chat.completions.create({
-              messages: [{ 
-                role: "user", 
-                content: sectionPrompt 
-              }],
-              model: "gpt-3.5-turbo",
-              temperature: 0.7,
-            });
-
-            const response = safeJsonParse(completion.choices[0].message.content);
-            return response.sections[0];
-          };
-
-          // Log the outline structure before generating sections
-          console.log('Full outline structure:', structure.outline);
-
-          // Generate content for available sections
-          const sections = await Promise.all([
-            generateSectionContent(1),  // section1
-            generateSectionContent(2),  // section2
-            generateSectionContent(3),  // section3
-            generateSectionContent(4),  // section4
-            generateSectionContent(5),  // section5
-          ].slice(0, structure.outline.length - 1));  // Only generate for available sections
-
-          // Fill any missing sections with placeholder content
-          while (sections.length < 5) {
-            sections.push({
-              title: `Section ${sections.length + 1}`,
-              content: `Content for section ${sections.length + 1} not available.`
-            });
-          }
-
-          // After generating sections
-          console.log('Generated sections:', sections);
-
-          // First combine all sections
-          const combinedArticle = `# ${structure.headline}
-
-${introductionContent}
-
-## ${sections[0].title}
-${sections[0].content}
-
-## ${sections[1].title}
-${sections[1].content}
-
-## ${sections[2].title}
-${sections[2].content}
-
-## ${sections[3].title}
-${sections[3].content}
-
-## ${sections[4].title}
-${sections[4].content}`;
-
-          // Create a prompt to improve the combined article
-          const polishArticlePrompt = `Here's a draft article that needs polishing:
-
-${combinedArticle}
-
-Instructions:
-1. Improve the flow between sections
-2. Add smooth transitions between paragraphs
-3. Ensure consistent tone and style throughout
-4. Keep all section headlines exactly as they are
-5. Maintain all key information and examples
-6. Keep the markdown formatting intact
-7. Make sure the article reads as one cohesive piece
-
-Return the polished article in this JSON format:
+Antworte in diesem JSON-Format:
 {
-  "full_article": "Your polished markdown article here"
-}`;
+  "title": "${section.title}",
+  "content": "## ${section.title}\\n\\nDein Markdown-formatierter Inhalt hier..."
+}
 
-          // Get the polished version
-          const polishCompletion = await openai.chat.completions.create({
-            messages: [{ 
-              role: "user", 
-              content: polishArticlePrompt 
-            }],
+WICHTIG: Stelle sicher, dass die JSON-Antwort gültig ist:
+- Verwende \\" für Anführungszeichen im Text
+- Verwende \\n für Zeilenumbrüche
+- Escape alle Sonderzeichen korrekt`;
+
+          const completion = await openai.chat.completions.create({
+            messages: [{ role: "user", content: generateSectionPrompt }],
             model: "gpt-3.5-turbo",
             temperature: 0.7,
           });
 
-          const polishedResponse = safeJsonParse(polishCompletion.choices[0].message.content);
-          const polishedArticle = polishedResponse.full_article;
+          const sectionContent = safeJsonParse(completion.choices[0].message.content);
+          return sectionContent;
+        };
 
-          // Update the return statement
-          const returnContent = {
+        // Generate content for each section
+        const sections = await Promise.all([
+          generateSectionContent(1),
+          generateSectionContent(2),
+          generateSectionContent(3),
+          generateSectionContent(4),
+          generateSectionContent(5)
+        ].slice(0, structure.outline.length - 1));
+
+        // After generating sections
+        console.log('Generated sections:', sections);
+
+        // After generating all sections, combine them into a full article
+        const combinedArticle = `${introductionContent}
+
+${sections.map(section => {
+  if (!section || !section.content || !section.title) return '';
+  
+  // Ensure proper markdown formatting
+  const content = section.content.replace(/^## .*\n/, '').trim(); // Remove any existing heading
+  return `## ${section.title}\n\n${content}`; // Add heading with proper spacing
+  
+}).filter(Boolean).join('\n\n')}`.trim();
+
+        // Create a prompt to improve the combined article
+        const polishArticlePrompt = `Hier ist ein Artikelentwurf, der verbessert werden soll:
+
+${combinedArticle}
+
+Anweisungen:
+1. Formatiere den Artikel strikt in Markdown:
+   - Die Einleitung steht am Anfang (ohne Überschrift)
+   - Kapitelüberschriften mit ## und Leerzeilen davor und danach
+   - Absätze durch Leerzeilen trennen
+   - Wichtige Begriffe mit **Fettdruck**
+   - Aufzählungen mit * oder -
+   - Links als [Text](URL)
+2. Verbessere die Übergänge zwischen den Abschnitten
+3. Stelle einen einheitlichen Ton und Stil sicher
+4. Behalte ALLE Markdown-Formatierungen bei
+
+WICHTIG: Gib den Text exakt in diesem Format zurück:
+
+Einleitung
+[Leerzeile]
+## Erste Überschrift
+[Leerzeile]
+Text des ersten Kapitels...
+[Leerzeile]
+## Zweite Überschrift
+[Leerzeile]
+Text des zweiten Kapitels...
+
+Antworte AUSSCHLIESSLICH mit diesem JSON-Format:
+{
+  "full_article": "Dein vollständig formatierter Markdown-Text hier..."
+}`;
+
+        // Get the polished version with strict parsing
+        const polishCompletion = await openai.chat.completions.create({
+          messages: [
+            {
+              role: "system",
+              content: "Du bist ein Experte für Markdown-Formatierung. Stelle sicher, dass der Text perfekt in Markdown formatiert ist."
+            },
+            {
+              role: "user",
+              content: polishArticlePrompt
+            }
+          ],
+          model: "gpt-3.5-turbo-16k", // Use the 16k model for longer texts
+          max_tokens: 12000,          // Set a reasonable max token limit
+          temperature: 0.7,
+        });
+
+        // Improve the JSON parsing
+        const polishedResponse = safeJsonParse(polishCompletion.choices[0].message.content);
+        if (!polishedResponse || !polishedResponse.full_article) {
+          throw new Error('Invalid response format from OpenAI');
+        }
+        const polishedArticle = polishedResponse.full_article;
+
+        // Generate images for the blog post
+        try {
+          console.log('Generating image search terms for:', { topic, primaryKeywords, secondaryKeywords });
+          
+          const searchTerms = await generateImageSearchTerms(topic, primaryKeywords, secondaryKeywords);
+          console.log('Generated search terms:', searchTerms);
+
+          const images = await Promise.all(
+            searchTerms.map(async searchTerm => {
+              const image = await searchUnsplashImage(searchTerm.term, searchTerm.expected_tags);
+              if (image) {
+                return {
+                  ...image,
+                  primary_keyword_used: searchTerm.primary_keywords_used.length > 0
+                };
+              }
+              return null;
+            })
+          );
+
+          return {
             content: {
               ...structure,
               introduction: introductionContent,
-              body_copy: bodyContent,
-              full_article: polishedArticle,  // Use the polished version
-              section1: { title: sections[0].title, content: sections[0].content },
-              section2: { title: sections[1].title, content: sections[1].content },
-              section3: { title: sections[2].title, content: sections[2].content },
-              section4: { title: sections[3].title, content: sections[3].content },
-              section5: { title: sections[4].title, content: sections[4].content },
+              full_article: polishedArticle,
+              section1: sections[0] || { title: '', content: '' },
+              section2: sections[1] || { title: '', content: '' },
+              section3: sections[2] || { title: '', content: '' },
+              section4: sections[3] || { title: '', content: '' },
+              section5: sections[4] || { title: '', content: '' },
               image_urls: images.map(img => img?.urls?.regular || ''),
-              alt_image_texts: images.map(img => img?.description || img?.alt_description || '')
+              alt_image_texts: images.map(img => img?.alt_description || ''),
+              image_metadata: images.map(img => ({
+                url: img?.urls?.regular || '',
+                tags: img?.tags?.map(tag => tag.title) || [],
+                photographer: img?.user?.name || '',
+                alt_description: img?.alt_description || '',
+                primary_keyword_used: img?.primary_keyword_used || false
+              }))
             },
             usage: totalUsage
           };
-
-          console.log('Return content:', returnContent);
-          console.log('Section 1:', returnContent.content.section1);
-          console.log('Section 2:', returnContent.content.section2);
-
-          return returnContent;
         } catch (error) {
-          console.error('Error generating blog content:', error);
-          throw error;
+          console.error('Error generating images:', error);
+          return {
+            content: {
+              ...structure,
+              introduction: introductionContent,
+              full_article: polishedArticle,
+              section1: sections[0] || { title: '', content: '' },
+              section2: sections[1] || { title: '', content: '' },
+              section3: sections[2] || { title: '', content: '' },
+              section4: sections[3] || { title: '', content: '' },
+              section5: sections[4] || { title: '', content: '' },
+              image_urls: [],
+              alt_image_texts: [],
+              image_metadata: []
+            },
+            usage: totalUsage
+          };
         }
-      } catch (apiError) {
-        if (apiError instanceof Error) {
-          if (apiError.message.includes('401')) {
-            throw new Error('OpenAI API key is invalid. Please check your API key in the .env file.');
-          }
-          if (apiError.message.includes('429')) {
-            throw new Error('OpenAI API rate limit exceeded. Please try again in a few moments.');
-          }
-          throw new Error(`OpenAI API Error: ${apiError.message}`);
-        }
-        throw new Error('Failed to communicate with OpenAI');
+      } catch (error) {
+        console.error('Error generating structure:', error);
+        throw new Error('Failed to generate blog structure. Please try again.');
       }
     } catch (error) {
-      console.error('OpenAI API Error:', error);
-      if (error instanceof Error) {
-        throw new Error(`OpenAI API Error: ${error.message}`);
-      }
-      throw new Error('An unexpected error occurred while generating content');
+      console.error('Error generating style analysis:', error);
+      throw new Error('Failed to generate style analysis. Please try again.');
     }
   } catch (error) {
-    console.error('OpenAI API Error:', error);
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('An unexpected error occurred while generating content');
+    console.error('Error generating blog content:', error);
+    throw new Error('Failed to generate blog content. Please try again.');
   }
+};
+
+const generateImageSearchTerms = async (topic: string, primaryKeywords: string[], secondaryKeywords: string[]) => {
+  const prompt = `You are an API-connected assistant that helps find perfect images for blog posts.
+
+Current request:
+Topic: ${topic}
+Primary Keywords: ${primaryKeywords.join(', ')}
+Secondary Keywords: ${secondaryKeywords.join(', ')}
+
+Create 3 specific and descriptive search terms that would find professional, relevant images on Unsplash.
+Consider:
+- Professional business/tech context
+- Abstract concepts can be visualized through metaphors
+- Focus on scenes, situations, or metaphorical representations
+- Ensure terms will match with common Unsplash image tags
+- Prioritize primary keywords but combine them intelligently with descriptive terms
+
+Response requirements:
+- Return exactly 3 search terms
+- Each term should be specific enough to find relevant images
+- Terms should be optimized for Unsplash's tagging system
+
+Respond in JSON format:
+{
+  "searchTerms": [
+    {
+      "term": "specific search term 1",
+      "primary_keywords_used": ["used", "primary", "keywords"],
+      "expected_tags": ["likely", "matching", "tags"]
+    },
+    {
+      "term": "specific search term 2",
+      "primary_keywords_used": ["used", "primary", "keywords"],
+      "expected_tags": ["likely", "matching", "tags"]
+    },
+    {
+      "term": "specific search term 3",
+      "primary_keywords_used": ["used", "primary", "keywords"],
+      "expected_tags": ["likely", "matching", "tags"]
+    }
+  ]
+}`;
+
+  const completion = await openai.chat.completions.create({
+    messages: [{ role: "user", content: prompt }],
+    model: "gpt-3.5-turbo",
+    temperature: 0.7,
+  });
+
+  const response = safeJsonParse(completion.choices[0].message.content);
+  return response.searchTerms;
 };
