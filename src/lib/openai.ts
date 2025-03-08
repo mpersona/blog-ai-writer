@@ -429,53 +429,42 @@ Antworte AUSSCHLIESSLICH mit diesem JSON-Format:
 };
 
 const generateImageSearchTerms = async (topic: string, primaryKeywords: string[], secondaryKeywords: string[]) => {
-  const prompt = `You are an API-connected assistant that helps find perfect images for blog posts.
+  const prompt = `Du bist ein KI-Assistent, der dabei hilft, das perfekte und einzigartige Bild für Blog-Beiträge zu finden.
 
-Current request:
-Topic: ${topic}
-Primary Keywords: ${primaryKeywords.join(', ')}
-Secondary Keywords: ${secondaryKeywords.join(', ')}
+Aktuelle Anfrage:
+Thema: ${topic}
+Primäre Keywords: ${primaryKeywords.join(', ')}
+Sekundäre Keywords: ${secondaryKeywords.join(', ')}
 
-Create 3 specific and descriptive search terms that would find professional, relevant images on Unsplash.
-Consider:
-- Professional business/tech context
-- Abstract concepts can be visualized through metaphors
-- Focus on scenes, situations, or metaphorical representations
-- Ensure terms will match with common Unsplash image tags
-- Prioritize primary keywords but combine them intelligently with descriptive terms
+Erstelle einen spezifischen und beschreibenden Suchbegriff, der ein professionelles, relevantes und einzigartiges Bild auf Unsplash finden würde.
+Beachte dabei:
+- Professioneller Business/Tech-Kontext
+- Abstrakte Konzepte können durch Metaphern visualisiert werden
+- Fokussiere auf Szenen, Situationen oder metaphorische Darstellungen
+- Stelle sicher, dass die Begriffe mit gängigen Unsplash-Bildtags übereinstimmen
+- Priorisiere primäre Keywords, aber kombiniere sie intelligent mit beschreibenden Begriffen
+- Der Suchbegriff sollte einzigartig genug sein, um häufig verwendete Bilder zu vermeiden
 
-Response requirements:
-- Return exactly 3 search terms
-- Each term should be specific enough to find relevant images
-- Terms should be optimized for Unsplash's tagging system
+Anforderungen an die Antwort:
+- Gib genau einen Suchbegriff zurück
+- Der Begriff sollte spezifisch genug sein, um relevante aber einzigartige Bilder zu finden
+- Der Begriff sollte für das Unsplash-Tagging-System optimiert sein
 
-Respond in JSON format:
+Antworte in diesem JSON-Format:
 {
-  "searchTerms": [
-    {
-      "term": "specific search term 1",
-      "primary_keywords_used": ["used", "primary", "keywords"],
-      "expected_tags": ["likely", "matching", "tags"]
-    },
-    {
-      "term": "specific search term 2",
-      "primary_keywords_used": ["used", "primary", "keywords"],
-      "expected_tags": ["likely", "matching", "tags"]
-    },
-    {
-      "term": "specific search term 3",
-      "primary_keywords_used": ["used", "primary", "keywords"],
-      "expected_tags": ["likely", "matching", "tags"]
-    }
-  ]
+  "searchTerm": {
+    "term": "spezifischer einzigartiger Suchbegriff",
+    "primary_keywords_used": ["verwendete", "primäre", "keywords"],
+    "expected_tags": ["erwartete", "matching", "tags"]
+  }
 }`;
 
   const completion = await openai.chat.completions.create({
     messages: [{ role: "user", content: prompt }],
     model: "gpt-3.5-turbo",
-    temperature: 0.7,
+    temperature: 0.9,
   });
 
   const response = safeJsonParse(completion.choices[0].message.content);
-  return response.searchTerms;
+  return [response.searchTerm]; // Return as array for backward compatibility
 };
